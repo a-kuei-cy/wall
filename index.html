@@ -1,0 +1,276 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>小小閱讀家打卡牆</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    .gradient-bg {
+      background: linear-gradient(135deg, #a1c4fd, #c2e9fb);
+    }
+    .card:hover {
+      transform: translateY(-5px);
+      transition: transform 0.3s ease;
+    }
+    .star-rating .star:hover,
+    .star-rating .star.selected {
+      color: #facc15;
+    }
+  </style>
+</head>
+<body class="min-h-screen gradient-bg font-sans">
+  <div class="container mx-auto p-4">
+    <!-- Header -->
+    <h1 class="text-4xl font-bold text-center text-gray-800 mb-8">📚 小小閱讀家打卡牆</h1>
+
+    <!-- Check-in Form -->
+    <div class="bg-white p-6 rounded-lg shadow-lg mb-8 max-w-2xl mx-auto">
+      <h2 class="text-2xl font-semibold mb-4">📝 閱讀打卡</h2>
+      <div class="space-y-4">
+        <input id="classInput" type="text" placeholder="班級 (例如：三年一班)" class="w-full p-2 border rounded">
+        <input id="nameInput" type="text" placeholder="姓名" class="w-full p-2 border rounded">
+        <input id="bookInput" type="text" placeholder="書名" class="w-full p-2 border rounded">
+        <textarea id="reviewInput" placeholder="閱讀心得" class="w-full p-2 border rounded h-24"></textarea>
+        <div class="star-rating flex space-x-2">
+          <span class="star cursor-pointer text-2xl" data-value="1">★</span>
+          <span class="star cursor-pointer text-2xl" data-value="2">★</span>
+          <span class="star cursor-pointer text-2xl" data-value="3">★</span>
+          <span class="star cursor-pointer text-2xl" data-value="4">★</span>
+          <span class="star cursor-pointer text-2xl" data-value="5">★</span>
+        </div>
+        <button id="submitBtn" class="w-full bg-blue-500 text-white p-2 rounded hover:bg-blue-600">打卡分享</button>
+      </div>
+    </div>
+
+    <!-- Admin Login -->
+    <div class="text-center mb-8">
+      <button id="adminBtn" class="bg-gray-800 text-white px-4 py-2 rounded hover:bg-gray-900">🔒 管理介面</button>
+    </div>
+
+    <!-- Leaderboard -->
+    <div class="bg-white p-6 rounded-lg shadow-lg mb-8 max-w-2xl mx-auto">
+      <h2 class="text-2xl font-semibold mb-4">🏆 閱讀王排行榜</h2>
+      <ul id="leaderboard" class="space-y-2"></ul>
+    </div>
+
+    <!-- Check-in Cards -->
+    <div id="cardContainer" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6"></div>
+
+    <!-- Admin Modal -->
+    <div id="adminModal" class="hidden fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+      <div class="bg-white p-6 rounded-lg shadow-lg max-w-md w-full">
+        <h2 class="text-2xl font-semibold mb-4">管理介面</h2>
+        <input id="adminPassword" type="password" placeholder="輸入密碼" class="w-full p-2 border rounded mb-4">
+        <button id="loginBtn" class="w-full bg-blue-500 text-white p-2 rounded hover:bg-blue-600 mb-2">登入</button>
+        <div id="adminPanel" class="hidden">
+          <h3 class="text-xl font-semibold mb-2">統計資料</h3>
+          <p>總打卡數: <span id="totalCheckins"></span></p>
+          <p>參與學生數: <span id="uniqueStudents"></span></p>
+          <p>參與班級數: <span id="uniqueClasses"></span></p>
+          <button id="exportJsonBtn" class="w-full bg-green-500 text-white p-2 rounded hover:bg-green-600 my-2">匯出 JSON</button>
+          <button id="exportCsvBtn" class="w-full bg-green-500 text-white p-2 rounded hover:bg-green-600 my-2">匯出 CSV</button>
+          <button id="resetBtn" class="w-full bg-red-500 text-white p-2 rounded hover:bg-red-600 my-2">重置資料</button>
+        </div>
+        <button id="closeModalBtn" class="w-full bg-gray-500 text-white p-2 rounded hover:bg-gray-600 mt-2">關閉</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Load data from localStorage
+    let checkins = JSON.parse(localStorage.getItem('checkins')) || [];
+
+    // Star rating functionality
+    const stars = document.querySelectorAll('.star');
+    let selectedRating = 0;
+    stars.forEach(star => {
+      star.addEventListener('click', () => {
+        selectedRating = star.dataset.value;
+        stars.forEach(s => s.classList.remove('selected'));
+        for (let i = 0; i < selectedRating; i++) {
+          stars[i].classList.add('selected');
+        }
+      });
+    });
+
+    // Submit check-in
+    document.getElementById('submitBtn').addEventListener('click', () => {
+      const className = document.getElementById('classInput').value.trim();
+      const name = document.getElementById('nameInput').value.trim();
+      const book = document.getElementById('bookInput').value.trim();
+      const review = document.getElementById('reviewInput').value.trim();
+      if (!className || !name || !book || !review || !selectedRating) {
+        alert('請填寫所有欄位並選擇評分！');
+        return;
+      }
+      const checkin = {
+        id: Date.now(),
+        className,
+        name,
+        book,
+        review,
+        rating: selectedRating,
+        date: new Date().toLocaleDateString('zh-TW')
+      };
+      checkins.unshift(checkin);
+      localStorage.setItem('checkins', JSON.stringify(checkins));
+      renderCards();
+      renderLeaderboard();
+      document.getElementById('classInput').value = '';
+      document.getElementById('nameInput').value = '';
+      document.getElementById('bookInput').value = '';
+      document.getElementById('reviewInput').value = '';
+      stars.forEach(s => s.classList.remove('selected'));
+      selectedRating = 0;
+    });
+
+    // Render check-in cards
+    function renderCards() {
+      const container = document.getElementById('cardContainer');
+      container.innerHTML = '';
+      checkins.forEach(checkin => {
+        const card = document.createElement('div');
+        card.className = 'card bg-white p-4 rounded-lg shadow-lg';
+        const avatar = checkin.name.charAt(0).toUpperCase();
+        card.innerHTML = `
+          <div class="flex items-center mb-2">
+            <div class="w-10 h-10 bg-blue-500 text-white rounded-full flex items-center justify-center mr-2">${avatar}</div>
+            <div>
+              <p class="font-semibold">${checkin.name} (${checkin.className})</p>
+              <p class="text-sm text-gray-500">${checkin.date}</p>
+            </div>
+          </div>
+          <p><strong>書名：</strong>${checkin.book}</p>
+          <p><strong>心得：</strong>${checkin.review}</p>
+          <p><strong>評分：</strong>${'★'.repeat(checkin.rating)}</p>
+        `;
+        container.appendChild(card);
+      });
+    }
+
+    // Render leaderboard
+    function renderLeaderboard() {
+      const leaderboard = document.getElementById('leaderboard');
+      const stats = {};
+      checkins.forEach(checkin => {
+        const key = `${checkin.name}|${checkin.className}`;
+        stats[key] = stats[key] || { name: checkin.name, className: checkin.className, count: 0 };
+        stats[key].count++;
+      });
+      const sorted = Object.values(stats).sort((a, b) => b.count - a.count).slice(0, 10);
+      leaderboard.innerHTML = '';
+      sorted.forEach((entry, index) => {
+        const li = document.createElement('li');
+        li.className = 'flex items-center justify-between';
+        const medal = index === 0 ? '🥇' : index === 1 ? '🥈' : index === 2 ? '🥉' : '';
+        li.innerHTML = `<span>${medal} ${entry.name} (${entry.className})</span><span>${entry.count} 次</span>`;
+        leaderboard.appendChild(li);
+      });
+    }
+
+    // Admin modal functionality
+    document.getElementById('adminBtn').addEventListener('click', () => {
+      document.getElementById('adminModal').classList.remove('hidden');
+    });
+
+    document.getElementById('closeModalBtn').addEventListener('click', () => {
+      document.getElementById('adminModal').classList.add('hidden');
+      document.getElementById('adminPassword').value = '';
+      document.getElementById('adminPanel').classList.add('hidden');
+    });
+
+    document.getElementById('loginBtn').addEventListener('click', () => {
+      const password = document.getElementById('adminPassword').value;
+      if (password === 'admin123') {
+        document.getElementById('adminPanel').classList.remove('hidden');
+        document.getElementById('totalCheckins').textContent = checkins.length;
+        document.getElementById('uniqueStudents').textContent = new Set(checkins.map(c => c.name)).size;
+        document.getElementById('uniqueClasses').textContent = new Set(checkins.map(c => c.className)).size;
+      } else {
+        alert('密碼錯誤！');
+      }
+    });
+
+    // Export JSON
+    document.getElementById('exportJsonBtn').addEventListener('click', () => {
+      const dataStr = JSON.stringify(checkins, null, 2);
+      const blob = new Blob([dataStr], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'checkins.json';
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+
+    // Export CSV
+    document.getElementById('exportCsvBtn').addEventListener('click', () => {
+      const headers = ['ID', '班級', '姓名', '書名', '心得', '評分', '日期'];
+      const rows = checkins.map(c => [c.id, c.className, c.name, c.book, c.review, c.rating, c.date]);
+      const csv = [headers.join(','), ...rows.map(row => row.join(','))].join('\n');
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'checkins.csv';
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+
+    // Reset data
+    document.getElementById('resetBtn').addEventListener('click', () => {
+      if (confirm('確定要清空所有資料？此操作無法復原！')) {
+        checkins = [];
+        localStorage.setItem('checkins', JSON.stringify(checkins));
+        renderCards();
+        renderLeaderboard();
+        document.getElementById('adminModal').classList.add('hidden');
+      }
+    });
+
+    // Initial render
+    renderCards();
+    renderLeaderboard();
+  </script>
+</body>
+</html>
